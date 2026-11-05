@@ -133,7 +133,8 @@ $batText = @"
 cd /d "%~dp0"
 "$vpy" -X utf8 run.py >> "data\server.out.log" 2>> "data\server.err.log"
 "@
-[System.IO.File]::WriteAllText($bat, $batText -replace "`n", "`r`n", (New-Object System.Text.UTF8Encoding($false)))
+$batText = ($batText -replace "`r`n", "`n") -replace "`n", "`r`n"
+[System.IO.File]::WriteAllText($bat, $batText, (New-Object System.Text.UTF8Encoding($false)))
 
 # ---------------------------------------------------------------- 6. start now
 Step "Starting the dashboard on port $Port"
