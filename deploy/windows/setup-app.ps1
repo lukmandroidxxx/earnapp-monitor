@@ -50,7 +50,8 @@ Step "Downloading code"
 $zip = Join-Path $env:TEMP "earnapp-monitor-main.zip"
 $tmp = Join-Path $env:TEMP "eam-src"
 if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
-Invoke-WebRequest -Uri "https://github.com/lukmandroidxxx/earnapp-monitor/archive/refs/heads/main.zip" -OutFile $zip -UseBasicParsing
+$zipUrl = "https://github.com/lukmandroidxxx/earnapp-monitor/archive/refs/heads/main.zip?t=" + [DateTime]::UtcNow.Ticks
+Invoke-WebRequest -Uri $zipUrl -OutFile $zip -UseBasicParsing
 Expand-Archive -Path $zip -DestinationPath $tmp -Force
 $src = Get-ChildItem $tmp -Directory | Select-Object -First 1
 if (-not $src) { throw "Archive did not contain a project folder" }
