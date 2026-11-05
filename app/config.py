@@ -73,6 +73,7 @@ class Settings:
     telegram_chat_id: str
     alert_cooldown: int
     request_timeout: int
+    pool_agent_token: str
 
     @property
     def telegram_enabled(self) -> bool:
@@ -126,6 +127,7 @@ settings = Settings(
     telegram_chat_id=_get("TELEGRAM_CHAT_ID"),
     alert_cooldown=_int("ALERT_COOLDOWN_SECONDS", 1800),
     request_timeout=_int("REQUEST_TIMEOUT", 20),
+    pool_agent_token=_get("POOL_AGENT_TOKEN"),
 )
 
 LAST_SYNC_FILE = DATA_DIR / "last_sync.json"

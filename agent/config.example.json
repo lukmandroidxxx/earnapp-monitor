@@ -1,0 +1,15 @@
+{
+  "api_url": "https://earnapp-monitor.tail336b60.ts.net/api/pool",
+  "token": "ISI_DENGAN_POOL_AGENT_TOKEN",
+  "machine": "RDP1",
+  "bind_ip": "192.168.18.200",
+  "start_port": 10000,
+  "num_ports": 28,
+  "refresh_sec": 60,
+  "report_sec": 30,
+  "probe_sec": 300,
+  "probe_target": "api.ipify.org:443",
+  "probe_workers": 6,
+  "connect_timeout": 20,
+  "cache_file": "C:\\LokiProxyAgent\\pool_cache.json"
+}

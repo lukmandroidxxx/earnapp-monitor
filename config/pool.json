@@ -1,0 +1,11 @@
+{
+  "machine": "RDP1",
+  "bind_ip": "192.168.18.200",
+  "start_port": 10000,
+  "num_ports": 28,
+  "max_ports_per_ip": 2,
+  "group_rules": [
+    { "start": 10000, "end": 10015, "group": "1" },
+    { "start": 10016, "end": 10027, "group": "2" }
+  ]
+}

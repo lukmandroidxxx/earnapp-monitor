@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+{% block title %}IP Pool · EarnApp Monitor{% endblock %}
+
+{% block content %}
+<div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+  <div>
+    <h1 class="text-xl font-semibold">IP Pool &amp; Assignment</h1>
+    <p class="text-sm text-slate-400 mt-1">
+      Upload export Loki atau tab Pool (xlsx). Data otomatis dirapikan per region, group, dan akun,
+      lalu dibagikan ke port agent di RDP.
+    </p>
+  </div>
+  <div class="flex items-center gap-2">
+    <a href="/api/pool?machine={{ cfg.machine }}" target="_blank"
+       class="px-3 py-1.5 rounded-md text-sm bg-slate-800/60 ring-1 ring-slate-700/60 hover:bg-slate-800">
+      Lihat JSON agent
+    </a>
+  </div>
+</div>
+
+<div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-4 gap-3 mb-5">
+  {% set cards = [
+    ('Sesi', summary.entries, 'text-slate-100'),
+    ('Aktif', summary.active, 'text-emerald-300'),
+    ('Expired', summary.expired, 'text-rose-300'),
+    ('Jatuh tempo < 24j', summary.expiring_24h, 'text-amber-300'),
+    ('Offline', summary.offline, 'text-slate-400'),
+    ('Blacklist', summary.blacklisted, 'text-rose-200'),
+    ('Terverifikasi', summary.verified, 'text-cyan-300'),
+    ('Karantina', summary.quarantined, 'text-orange-300'),
+    ('Port terisi', summary.ports_assigned ~ '/' ~ summary.ports, 'text-sky-300')
+  ] %}
+  {% for label, value, color in cards %}
+  <div class="rounded-lg bg-slate-900/70 ring-1 ring-slate-800 px-3 py-2">
+    <div class="text-[11px] uppercase tracking-wide text-slate-500">{{ label }}</div>
+    <div class="text-lg font-semibold {{ color }}">{{ value }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<section class="rounded-xl bg-slate-900/60 ring-1 ring-slate-800 p-4 mb-5">
+  <form method="post" action="/pool/import" enctype="multipart/form-data"
+        class="flex flex-wrap items-center gap-3">
+    <div class="flex-1 min-w-[240px]">
+      <label class="block text-xs uppercase tracking-wide text-slate-500 mb-1">File xlsx (bisa lebih dari satu)</label>
+      <input type="file" name="files" accept=".xlsx,.xlsm" multiple required
+             class="block w-full text-sm text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-emerald-500/15 file:text-emerald-300 file:px-3 file:py-1.5 file:text-sm hover:file:bg-emerald-500/25">
+    </div>
+    <button class="px-4 py-2 rounded-md bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/30 hover:bg-emerald-500/25 text-sm font-medium">
+      Import &amp; assign
+    </button>
+    <div class="text-xs text-slate-500 leading-relaxed">
+      Format: export Loki (Proxy IP Address / Proxy Command / Country/Region / Expiration Time / Status),
+      tab <span class="mono">Pool</span> (tambahan Group / Account), atau tab <span class="mono">Blacklist</span>.
+      Setelah import, port langsung di-assign otomatis.
+    </div>
+  </form>
+</section>
+
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-5 mb-5">
+  <section class="xl:col-span-2 rounded-xl bg-slate-900/60 ring-1 ring-slate-800 overflow-hidden">
+    <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+      <div class="font-medium text-sm">Ringkasan per region</div>
+      <div class="text-xs text-slate-500">{{ groups|length }} region</div>
+    </div>
+    <div class="overflow-auto max-h-72">
+      <table class="w-full text-sm">
+        <thead class="text-xs uppercase tracking-wide text-slate-500 sticky top-0 bg-slate-900">
+          <tr>
+            <th class="text-left px-4 py-2">Region</th>
+            <th class="text-right px-3 py-2">Sesi</th>
+            <th class="text-right px-3 py-2">Aktif</th>
+            <th class="text-right px-3 py-2">Expired</th>
+            <th class="text-left px-3 py-2">Group</th>
+            <th class="text-left px-3 py-2">Akun</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-800/70">
+          {% for row in groups %}
+          <tr class="hover:bg-slate-800/30">
+            <td class="px-4 py-2">
+              <a href="/pool?region={{ row.region|urlencode }}" class="hover:text-emerald-300">{{ row.region }}</a>
+            </td>
+            <td class="px-3 py-2 text-right text-slate-300">{{ row.total }}</td>
+            <td class="px-3 py-2 text-right {{ 'text-emerald-300' if row.active else 'text-slate-500' }}">{{ row.active }}</td>
+            <td class="px-3 py-2 text-right {{ 'text-rose-300' if row.expired else 'text-slate-500' }}">{{ row.expired }}</td>
+            <td class="px-3 py-2 text-slate-400">{{ row.groups }}</td>
+            <td class="px-3 py-2 text-slate-400">{{ row.accounts }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="px-4 py-6 text-center text-slate-500">Belum ada data. Upload file dulu.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="rounded-xl bg-slate-900/60 ring-1 ring-slate-800 p-4">
+    <div class="font-medium text-sm mb-3">Assign port otomatis</div>
+    <form method="post" action="/pool/assign" class="space-y-2 text-sm">
+      <label class="block text-xs text-slate-500">Machine</label>
+      <input name="machine" value="{{ cfg.machine }}"
+             class="w-full rounded-md bg-slate-950 ring-1 ring-slate-700 px-3 py-1.5 mono">
+      <div class="grid grid-cols-3 gap-2">
+        <div>
+          <label class="block text-xs text-slate-500">Port awal</label>
+          <input name="start_port" value="{{ cfg.start_port }}" type="number"
+                 class="w-full rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5 mono">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500">Jumlah</label>
+          <input name="num_ports" value="{{ cfg.num_ports }}" type="number"
+                 class="w-full rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5 mono">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500">Maks/IP</label>
+          <input name="max_ports_per_ip" value="{{ cfg.max_ports_per_ip }}" type="number"
+                 class="w-full rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5 mono">
+        </div>
+      </div>
+      <button class="w-full px-3 py-2 rounded-md bg-sky-500/15 text-sky-200 ring-1 ring-sky-500/30 hover:bg-sky-500/25">
+        Jalankan assignment
+      </button>
+      <p class="text-xs text-slate-500 leading-relaxed">
+        Assignment lama dipertahankan selama sesinya masih aktif. Sesi expired/offline diganti otomatis.
+        Satu sesi hanya dipakai satu port.
+      </p>
+    </form>
+
+    <div class="mt-4 pt-4 border-t border-slate-800">
+      <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Assign manual</div>
+      <form method="post" action="/pool/assign/one" class="flex items-end gap-2 text-sm">
+        <input type="hidden" name="machine" value="{{ cfg.machine }}">
+        <div>
+          <label class="block text-[11px] text-slate-500">Port</label>
+          <input name="port" type="number" value="{{ cfg.start_port }}" required
+                 class="w-24 rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5 mono">
+        </div>
+        <div class="flex-1">
+          <label class="block text-[11px] text-slate-500">ID entry (kosong = lepas)</label>
+          <input name="entry_id" placeholder="123"
+                 class="w-full rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5 mono">
+        </div>
+        <button class="px-3 py-1.5 rounded-md bg-slate-800 ring-1 ring-slate-700 hover:bg-slate-700">Set</button>
+      </form>
+    </div>
+  </section>
+</div>
+
+<section class="rounded-xl bg-slate-900/60 ring-1 ring-slate-800 overflow-hidden mb-5">
+  <div class="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+    <div class="font-medium text-sm">Sesi IP <span class="text-slate-500">({{ entry_total }})</span></div>
+    <form method="get" action="/pool" class="flex flex-wrap items-center gap-2 text-sm">
+      <input name="q" value="{{ filters.q }}" placeholder="cari IP / region / akun"
+             class="rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5 w-52">
+      <select name="region" class="rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5">
+        <option value="">Semua region</option>
+        {% for value in region_options %}
+        <option value="{{ value }}" {{ 'selected' if filters.region == value }}>{{ value }}</option>
+        {% endfor %}
+      </select>
+      <select name="group" class="rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5">
+        <option value="">Semua group</option>
+        {% for value in group_options %}
+        <option value="{{ value }}" {{ 'selected' if filters.group == value }}>Group {{ value }}</option>
+        {% endfor %}
+      </select>
+      <select name="status" class="rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5">
+        {% for value, label in [('', 'Semua status'), ('active', 'Aktif'), ('expired', 'Expired'), ('offline', 'Offline'), ('blacklist', 'Blacklist')] %}
+        <option value="{{ value }}" {{ 'selected' if filters.status == value }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="px-3 py-1.5 rounded-md bg-slate-800 ring-1 ring-slate-700 hover:bg-slate-700">Filter</button>
+    </form>
+  </div>
+  <div class="overflow-auto max-h-[640px]">
+    <table class="w-full text-sm">
+      <thead class="text-xs uppercase tracking-wide text-slate-500 sticky top-0 bg-slate-900 z-10">
+        <tr>
+          <th class="text-left px-3 py-2">#</th>
+          <th class="text-left px-3 py-2">IP</th>
+          <th class="text-left px-3 py-2">Region</th>
+          <th class="text-center px-2 py-2">Group</th>
+          <th class="text-left px-3 py-2">Akun</th>
+          <th class="text-left px-3 py-2">Endpoint</th>
+          <th class="text-left px-3 py-2">Expired</th>
+          <th class="text-left px-3 py-2">Status</th>
+          <th class="text-left px-3 py-2">Port</th>
+          <th class="text-right px-3 py-2">Aksi</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800/70">
+        {% for row in entry_rows %}
+        {% set entry = row.entry %}
+        {% set usable = row.usable %}
+        {% set expired = row.expired %}
+        <tr class="hover:bg-slate-800/30 align-top">
+          <td class="px-3 py-2 text-xs text-slate-500 mono">{{ entry.id }}</td>
+          <td class="px-3 py-2 mono text-slate-200">{{ entry.ip_address or '-' }}</td>
+          <td class="px-3 py-2">
+            <div class="text-slate-300">{{ entry.country_region or '-' }}</div>
+            <div class="text-xs text-slate-500">{{ entry.asn or '' }}{% if entry.local_ip %} · {{ entry.local_ip }}{% endif %}</div>
+          </td>
+          <td class="px-2 py-2 text-center text-slate-400">{{ entry.group_name or '-' }}</td>
+          <td class="px-3 py-2 text-slate-400">{{ entry.account_name or '-' }}</td>
+          <td class="px-3 py-2 text-xs text-slate-500 mono max-w-[220px] truncate" title="{{ entry.endpoint_hint }}">{{ entry.endpoint_hint }}</td>
+          <td class="px-3 py-2 text-xs {{ 'text-rose-300' if expired else 'text-slate-400' }}">
+            {{ entry.expires_at|dt }}
+          </td>
+          <td class="px-3 py-2">
+            {% if entry.blacklisted %}{{ status_badge('BLACKLIST') }}
+            {% elif expired %}{{ status_badge('ERROR') }}
+            {% elif entry.status == 'OFFLINE' %}{{ status_badge('PAUSED') }}
+            {% elif usable %}{{ status_badge('OK') }}
+            {% else %}{{ status_badge('UNCHECKED') }}{% endif %}
+          </td>
+          <td class="px-3 py-2 text-xs">
+            {% for row in ports_by_entry.get(entry.id, []) %}
+            <span class="inline-block mono rounded bg-slate-800 px-1.5 py-0.5 mr-1 mb-1">{{ row.machine }}:{{ row.port }}</span>
+            {% else %}
+            <span class="text-slate-600">-</span>
+            {% endfor %}
+          </td>
+          <td class="px-3 py-2 text-right">
+            <form method="post" action="/pool/entry/{{ entry.id }}/blacklist">
+              <button class="text-xs px-2 py-1 rounded ring-1 {{ 'bg-slate-800 ring-slate-700 text-slate-300' if entry.blacklisted else 'bg-rose-500/10 ring-rose-500/30 text-rose-300 hover:bg-rose-500/20' }}">
+                {{ 'Buka blokir' if entry.blacklisted else 'Blacklist' }}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="px-4 py-8 text-center text-slate-500">Tidak ada sesi yang cocok.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if entry_total > entry_rows|length %}
+  <div class="px-4 py-2 text-xs text-slate-500 border-t border-slate-800">
+    Menampilkan {{ entry_rows|length }} dari {{ entry_total }} baris. Perkecil filter untuk melihat sisanya.
+  </div>
+  {% endif %}
+</section>
+
+<section class="rounded-xl bg-slate-900/60 ring-1 ring-slate-800 overflow-hidden mb-5">
+  <div class="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+    <div class="font-medium text-sm">Port agent</div>
+    <div class="text-xs text-slate-500">
+      Listener RDP: <span class="mono">{{ cfg.bind_ip }}:{{ cfg.start_port }}-{{ cfg.start_port + cfg.num_ports - 1 }}</span>
+    </div>
+  </div>
+  <div class="overflow-auto max-h-96">
+    <table class="w-full text-sm">
+      <thead class="text-xs uppercase tracking-wide text-slate-500 sticky top-0 bg-slate-900">
+        <tr>
+          <th class="text-left px-3 py-2">Machine</th>
+          <th class="text-right px-2 py-2">Port</th>
+          <th class="text-center px-2 py-2">Group</th>
+          <th class="text-left px-3 py-2">IP / Region</th>
+          <th class="text-left px-3 py-2">Laporan terakhir</th>
+          <th class="text-right px-2 py-2">Conn</th>
+          <th class="text-right px-2 py-2">RX/TX</th>
+          <th class="text-left px-3 py-2">Error</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800/70">
+        {% for row in ports %}
+        <tr class="hover:bg-slate-800/30">
+          <td class="px-3 py-2 text-slate-400">{{ row.machine }}</td>
+          <td class="px-2 py-2 text-right mono text-slate-200">{{ row.port }}</td>
+          <td class="px-2 py-2 text-center text-slate-400">{{ row.group_name or '-' }}</td>
+          <td class="px-3 py-2">
+            {% if row.entry %}
+            <div class="mono text-slate-200">{{ row.entry.ip_address or '-' }}</div>
+            <div class="text-xs text-slate-500">{{ row.entry.country_region or '-' }}</div>
+            {% else %}
+            <span class="text-rose-300/80 text-xs">belum di-assign</span>
+            {% endif %}
+          </td>
+          <td class="px-3 py-2 text-xs text-slate-400">
+            {% if row.last_report_at %}
+            <div>{{ row.last_report_at|dt }}</div>
+            <div class="{{ 'text-emerald-300' if row.last_ok_at else 'text-rose-300' }}">
+              {{ 'OK' if row.last_ok_at else 'gagal' }}{% if row.latency_ms is not none %} · {{ row.latency_ms }} ms{% endif %}
+            </div>
+            {% else %}
+            <span class="text-slate-600">belum ada</span>
+            {% endif %}
+          </td>
+          <td class="px-2 py-2 text-right text-slate-400">{{ row.active_conns if row.active_conns is not none else '-' }}</td>
+          <td class="px-2 py-2 text-right text-xs text-slate-500 mono">
+            {% if row.rx_bytes is not none or row.tx_bytes is not none %}
+            {{ (row.rx_bytes or 0) // 1024 }}K / {{ (row.tx_bytes or 0) // 1024 }}K
+            {% else %}-{% endif %}
+          </td>
+          <td class="px-3 py-2 text-xs text-rose-300/80 max-w-[220px] truncate" title="{{ row.last_error or '' }}">{{ row.last_error or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="px-4 py-6 text-center text-slate-500">Belum ada port. Jalankan assignment.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="rounded-xl bg-slate-900/60 ring-1 ring-slate-800 overflow-hidden">
+  <div class="px-4 py-3 border-b border-slate-800 font-medium text-sm">Riwayat import</div>
+  <div class="overflow-auto">
+    <table class="w-full text-sm">
+      <thead class="text-xs uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="text-left px-4 py-2">Waktu</th>
+          <th class="text-left px-3 py-2">File</th>
+          <th class="text-left px-3 py-2">Sheet</th>
+          <th class="text-right px-3 py-2">Sesi</th>
+          <th class="text-right px-3 py-2">Baru</th>
+          <th class="text-right px-3 py-2">Update</th>
+          <th class="text-right px-3 py-2">Skip</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800/70">
+        {% for item in imports %}
+        <tr>
+          <td class="px-4 py-2 text-xs text-slate-400">{{ item.imported_at|dt }}</td>
+          <td class="px-3 py-2 text-slate-300 max-w-[320px] truncate">{{ item.filename }}</td>
+          <td class="px-3 py-2 text-xs text-slate-500">{{ item.source_format }}</td>
+          <td class="px-3 py-2 text-right text-slate-300">{{ item.entries_seen }}</td>
+          <td class="px-3 py-2 text-right text-emerald-300">{{ item.created }}</td>
+          <td class="px-3 py-2 text-right text-sky-300">{{ item.updated }}</td>
+          <td class="px-3 py-2 text-right text-slate-500">{{ item.skipped }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="px-4 py-6 text-center text-slate-500">Belum ada import.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

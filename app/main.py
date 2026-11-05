@@ -12,17 +12,39 @@ from datetime import datetime, timedelta, timezone
 from html import escape
 from urllib.parse import quote
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request, Response
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
-from . import config, jobs, login_helper
+from . import config, jobs, login_helper, pool_store
 from .crypto import decrypt
 from .db import SessionLocal, get_session, init_db
-from .models import Account, CookieMeta, DeviceUsage, EarnDevice, ProxySlot, SlotCheck, Snapshot, utcnow
+from .models import (
+    Account,
+    CookieMeta,
+    DeviceUsage,
+    EarnDevice,
+    PoolEntry,
+    PoolImport,
+    PoolPort,
+    ProxySlot,
+    SlotCheck,
+    Snapshot,
+    utcnow,
+)
 
 log = logging.getLogger("earnapp-monitor")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -198,7 +220,8 @@ app = FastAPI(title="EarnApp Multi-Account Monitor", lifespan=lifespan)
 
 # Route yang tetap bisa diakses tanpa Basic Auth: dipakai health check dan
 # keepalive (UptimeRobot/ping) supaya service gratis tidak tidur.
-PUBLIC_PATHS = {"/ping", "/healthz"}
+# /api/pool* tetap butuh token agent sendiri (bukan Basic Auth browser).
+PUBLIC_PATHS = {"/ping", "/healthz", "/api/pool", "/api/pool/report"}
 
 
 @app.middleware("http")
@@ -950,6 +973,325 @@ def check_slot(slot_id: int, session: Session = Depends(db_session)):
     ok, message = jobs.check_single(session, slot)
     target = f"/accounts/{slot.account_id}"
     return _redirect(target, msg=message if ok else None, err=None if ok else message)
+
+
+# --------------------------------------------------------------------------
+# IP pool: import xlsx, assignment port, dan API untuk agent di RDP
+# --------------------------------------------------------------------------
+def _require_agent_token(request: Request) -> None:
+    expected = config.settings.pool_agent_token
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="POOL_AGENT_TOKEN belum diset di .env server",
+        )
+    supplied = request.headers.get("x-pool-token", "")
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("bearer "):
+        supplied = header.split(" ", 1)[1].strip()
+    if not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="token agent salah")
+
+
+def _pool_filters(entries: list[PoolEntry], now) -> list[dict]:
+    buckets: dict[str, dict] = {}
+    for entry in entries:
+        key = entry.country_region or "(tanpa region)"
+        bucket = buckets.setdefault(
+            key,
+            {
+                "region": key,
+                "total": 0,
+                "active": 0,
+                "expired": 0,
+                "groups": set(),
+                "accounts": set(),
+            },
+        )
+        bucket["total"] += 1
+        if pool_store.entries_usable(entry, now):
+            bucket["active"] += 1
+        elif pool_store.is_expired(entry, now):
+            bucket["expired"] += 1
+        if entry.group_name:
+            bucket["groups"].add(entry.group_name)
+        if entry.account_name:
+            bucket["accounts"].add(entry.account_name)
+    rows = []
+    for bucket in buckets.values():
+        bucket["groups"] = ", ".join(sorted(bucket["groups"])) or "-"
+        bucket["accounts"] = ", ".join(sorted(bucket["accounts"])) or "-"
+        rows.append(bucket)
+    rows.sort(key=lambda item: (-item["total"], item["region"]))
+    return rows
+
+
+@app.get("/pool", response_class=HTMLResponse)
+def pool_page(
+    request: Request,
+    q: str = "",
+    region: str = "",
+    group: str = "",
+    status: str = "",
+    session: Session = Depends(db_session),
+):
+    now = utcnow()
+    cfg = pool_store.load_pool_config()
+
+    stmt = select(PoolEntry)
+    if region:
+        stmt = stmt.where(PoolEntry.country_region == region)
+    if group:
+        stmt = stmt.where(PoolEntry.group_name == group)
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(
+            or_(
+                PoolEntry.ip_address.like(like),
+                PoolEntry.username.like(like),
+                PoolEntry.country_region.like(like),
+                PoolEntry.account_name.like(like),
+                PoolEntry.group_name.like(like),
+            )
+        )
+    stmt = stmt.order_by(
+        PoolEntry.country_region.is_(None),
+        PoolEntry.country_region,
+        PoolEntry.group_name.is_(None),
+        PoolEntry.group_name,
+        PoolEntry.account_name.is_(None),
+        PoolEntry.account_name,
+        PoolEntry.ip_address,
+    )
+    entries = session.scalars(stmt).all()
+
+    if status == "active":
+        entries = [entry for entry in entries if pool_store.entries_usable(entry, now)]
+    elif status == "expired":
+        entries = [entry for entry in entries if pool_store.is_expired(entry, now)]
+    elif status == "offline":
+        entries = [entry for entry in entries if entry.status == "OFFLINE"]
+    elif status == "blacklist":
+        entries = [entry for entry in entries if entry.blacklisted]
+    elif status == "unassigned":
+        pass
+
+    ports = session.scalars(
+        select(PoolPort).order_by(PoolPort.machine, PoolPort.port)
+    ).all()
+    ports_by_entry: dict[int, list[PoolPort]] = {}
+    for row in ports:
+        if row.entry_id:
+            ports_by_entry.setdefault(row.entry_id, []).append(row)
+    imports = session.scalars(
+        select(PoolImport).order_by(PoolImport.imported_at.desc()).limit(8)
+    ).all()
+    all_entries = session.scalars(select(PoolEntry)).all()
+
+    region_options = sorted(
+        {entry.country_region for entry in all_entries if entry.country_region}
+    )
+    group_options = sorted({entry.group_name for entry in all_entries if entry.group_name})
+    entry_rows = [
+        {
+            "entry": entry,
+            "usable": pool_store.entries_usable(entry, now),
+            "expired": pool_store.is_expired(entry, now),
+        }
+        for entry in entries[:800]
+    ]
+
+    return templates.TemplateResponse(
+        request,
+        "pool.html",
+        {
+            "entry_rows": entry_rows,
+            "entry_total": len(entries),
+            "groups": _pool_filters(all_entries, now),
+            "ports": ports,
+            "ports_by_entry": ports_by_entry,
+            "imports": imports,
+            "summary": pool_store.summary(session, now),
+            "region_options": region_options,
+            "group_options": group_options,
+            "filters": {"q": q, "region": region, "group": group, "status": status},
+            "cfg": cfg,
+            "now": now,
+            "settings": config.settings,
+            "msg": request.query_params.get("msg"),
+            "err": request.query_params.get("err"),
+        },
+    )
+
+
+@app.post("/pool/import")
+async def pool_import(
+    files: list[UploadFile] = File(default=[]),
+    session: Session = Depends(db_session),
+):
+    files = [item for item in files if item and item.filename]
+    if not files:
+        return _redirect("/pool", err="Pilih minimal satu file xlsx dulu.")
+
+    created = updated = skipped = 0
+    warnings: list[str] = []
+    imported = 0
+    for upload in files:
+        data = await upload.read()
+        if not data:
+            warnings.append(f"{upload.filename}: file kosong")
+            continue
+        try:
+            parsed = pool_store.parse_xlsx(data, upload.filename or "upload.xlsx")
+        except ValueError as exc:
+            warnings.append(f"{upload.filename}: {exc}")
+            continue
+        if not parsed.entries:
+            warnings.append(
+                f"{upload.filename}: tidak ada sesi proxy yang bisa dibaca"
+            )
+            continue
+        report = pool_store.import_parsed(session, parsed)
+        created += report["created"]
+        updated += report["updated"]
+        skipped += report["skipped"]
+        imported += report["seen"]
+        warnings.extend(f"{upload.filename}: {text}" for text in report["warnings"])
+
+    if imported == 0:
+        return _redirect("/pool", err="; ".join(warnings)[:400] or "Tidak ada data yang diimpor.")
+
+    cfg = pool_store.load_pool_config()
+    assign = pool_store.auto_assign(
+        session,
+        machine=str(cfg["machine"]),
+        start_port=int(cfg["start_port"]),
+        num_ports=int(cfg["num_ports"]),
+        max_ports_per_ip=int(cfg.get("max_ports_per_ip", 2)),
+        rules=cfg.get("group_rules"),
+    )
+    message = (
+        f"Import selesai: {imported} sesi ({created} baru, {updated} diperbarui"
+        f"{f', {skipped} baris dilewati' if skipped else ''}). "
+        f"Assignment {assign['machine']}: {assign['assigned']}/{assign['ports']} port terisi, "
+        f"{assign['changed']} berubah."
+    )
+    return _redirect("/pool", msg=message, err="; ".join(warnings)[:400] or None)
+
+
+@app.post("/pool/assign")
+def pool_assign(
+    session: Session = Depends(db_session),
+    machine: str = Form(""),
+    start_port: int = Form(0),
+    num_ports: int = Form(0),
+    max_ports_per_ip: int = Form(0),
+):
+    cfg = pool_store.load_pool_config()
+    machine = (machine or str(cfg["machine"])).strip()
+    start_port = start_port or int(cfg["start_port"])
+    num_ports = num_ports or int(cfg["num_ports"])
+    max_ports_per_ip = max_ports_per_ip or int(cfg.get("max_ports_per_ip", 2))
+    result = pool_store.auto_assign(
+        session,
+        machine=machine,
+        start_port=start_port,
+        num_ports=num_ports,
+        max_ports_per_ip=max_ports_per_ip,
+        rules=cfg.get("group_rules"),
+    )
+    return _redirect(
+        "/pool",
+        msg=(
+            f"Assignment {machine}: {result['assigned']}/{result['ports']} port terisi "
+            f"dari {result['usable_entries']} sesi aktif, {result['changed']} berubah."
+        ),
+    )
+
+
+@app.post("/pool/assign/one")
+def pool_assign_one(
+    session: Session = Depends(db_session),
+    machine: str = Form(""),
+    port: int = Form(...),
+    entry_id: str = Form(""),
+):
+    cfg = pool_store.load_pool_config()
+    machine = (machine or str(cfg["machine"])).strip()
+    value = None
+    if entry_id.strip():
+        try:
+            value = int(entry_id)
+        except ValueError:
+            return _redirect("/pool", err="ID entry tidak valid.")
+        if session.get(PoolEntry, value) is None:
+            return _redirect("/pool", err=f"Entry #{value} tidak ditemukan.")
+    pool_store.assign_port(session, machine, port, value)
+    return _redirect("/pool", msg=f"Port {port} ({machine}) diperbarui.")
+
+
+@app.post("/pool/entry/{entry_id}/blacklist")
+def pool_toggle_blacklist(entry_id: int, session: Session = Depends(db_session)):
+    entry = session.get(PoolEntry, entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry tidak ditemukan")
+    entry.blacklisted = not entry.blacklisted
+    session.commit()
+    return _redirect(
+        "/pool",
+        msg=f"{entry.ip_address or entry.endpoint_hint}: "
+        f"{'masuk blacklist' if entry.blacklisted else 'keluar dari blacklist'}",
+    )
+
+
+@app.get("/api/pool")
+def api_pool(
+    request: Request,
+    machine: str = "",
+    group: str = "",
+    session: Session = Depends(db_session),
+):
+    _require_agent_token(request)
+    cfg = pool_store.load_pool_config()
+    machine = (machine or str(cfg["machine"])).strip()
+    ports = pool_store.entries_for_api(session, machine, group or None)
+    return JSONResponse(
+        {
+            "machine": machine,
+            "generated_at": utcnow().isoformat(timespec="seconds"),
+            "bind_ip": cfg.get("bind_ip"),
+            "start_port": cfg.get("start_port"),
+            "num_ports": cfg.get("num_ports"),
+            "group_rules": cfg.get("group_rules", []),
+            "ports": ports,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/pool/report")
+async def api_pool_report(request: Request, session: Session = Depends(db_session)):
+    _require_agent_token(request)
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="body harus JSON")
+    machine = str(payload.get("machine") or "").strip()
+    if not machine:
+        raise HTTPException(status_code=400, detail="machine wajib diisi")
+    ports = payload.get("ports")
+    if not isinstance(ports, list):
+        raise HTTPException(status_code=400, detail="ports harus list")
+    result = pool_store.apply_report(session, machine, ports)
+    return JSONResponse(
+        {
+            "ok": True,
+            "machine": machine,
+            "updated": result["updated"],
+            "rotated": result["rotated"],
+            "at": utcnow().isoformat(timespec="seconds"),
+        }
+    )
 
 
 @app.get("/healthz")

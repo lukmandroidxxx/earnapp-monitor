@@ -200,6 +200,104 @@ class EarnDevice(Base):
         return [str(item) for item in value] if isinstance(value, list) else []
 
 
+class PoolEntry(Base):
+    """Satu sesi proxy dari file export Loki (bisa juga dari sheet Pool).
+
+    Berbeda dari ProxySlot yang terikat satu akun EarnApp, PoolEntry adalah
+    inventaris IP mentah. Assignment ke port/mesin ada di PoolPort.
+    """
+
+    __tablename__ = "pool_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    endpoint_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    endpoint_enc: Mapped[str] = mapped_column(Text)
+    endpoint_hint: Mapped[str] = mapped_column(String(200), default="")
+
+    host: Mapped[str] = mapped_column(String(120), default="")
+    port: Mapped[int] = mapped_column(Integer, default=0)
+    username: Mapped[str] = mapped_column(String(120), default="")
+
+    ip_address: Mapped[str | None] = mapped_column(String(64), index=True, default=None)
+    country_region: Mapped[str | None] = mapped_column(String(160), index=True, default=None)
+    country_code: Mapped[str | None] = mapped_column(String(8), default=None)
+    region_state: Mapped[str | None] = mapped_column(String(80), default=None)
+    city: Mapped[str | None] = mapped_column(String(80), default=None)
+    asn: Mapped[str | None] = mapped_column(String(32), default=None)
+
+    # ACTIVE | OFFLINE | EXPIRED | UNKNOWN (dari file) — expired dihitung ulang saat dibaca.
+    status: Mapped[str] = mapped_column(String(16), default="UNKNOWN", index=True)
+    usage_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, default=None)
+
+    account_name: Mapped[str | None] = mapped_column(String(160), default=None)
+    group_name: Mapped[str | None] = mapped_column(String(32), index=True, default=None)
+    local_ip: Mapped[str | None] = mapped_column(String(64), default=None)
+
+    blacklisted: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Kesehatan sesi dari probe agent. Sesudah beberapa kali gagal, sesi
+    # dikarantina sementara supaya port dipindah ke sesi lain.
+    fail_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    last_fail_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    quarantine_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True, default=None
+    )
+
+    source_file: Mapped[str | None] = mapped_column(String(240), default=None)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class PoolPort(Base):
+    """Assignment satu port listener ke satu PoolEntry (1 port = 1 sesi)."""
+
+    __tablename__ = "pool_ports"
+    __table_args__ = (UniqueConstraint("machine", "port", name="uq_pool_port_machine"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    machine: Mapped[str] = mapped_column(String(64), index=True)
+    port: Mapped[int] = mapped_column(Integer)
+    group_name: Mapped[str | None] = mapped_column(String(32), default=None)
+
+    entry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pool_entries.id", ondelete="SET NULL"), index=True, default=None
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    # Laporan dari agent yang jalan di RDP.
+    last_report_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, default=None)
+    active_conns: Mapped[int | None] = mapped_column(Integer, default=None)
+    rx_bytes: Mapped[int | None] = mapped_column(Integer, default=None)
+    tx_bytes: Mapped[int | None] = mapped_column(Integer, default=None)
+    last_error: Mapped[str | None] = mapped_column(String(240), default=None)
+    note: Mapped[str | None] = mapped_column(String(240), default=None)
+
+    entry: Mapped[PoolEntry | None] = relationship()
+
+
+class PoolImport(Base):
+    """Riwayat upload file xlsx."""
+
+    __tablename__ = "pool_imports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    filename: Mapped[str] = mapped_column(String(240), default="")
+    source_format: Mapped[str] = mapped_column(String(32), default="")
+    entries_seen: Mapped[int] = mapped_column(Integer, default=0)
+    created: Mapped[int] = mapped_column(Integer, default=0)
+    updated: Mapped[int] = mapped_column(Integer, default=0)
+    skipped: Mapped[int] = mapped_column(Integer, default=0)
+    blacklisted: Mapped[int] = mapped_column(Integer, default=0)
+    report_json: Mapped[str] = mapped_column(Text, default="{}")
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class DeviceUsage(Base):
     """Pemakaian harian per device (nilai API EarnApp dalam milidetik uptime)."""
 
