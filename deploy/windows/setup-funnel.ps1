@@ -82,9 +82,33 @@ if ($state -ne 'Running') {
 }
 Ok "tailnet connected"
 
-Step "Enabling HTTPS certificates / Funnel"
-$funnelOut = & $ts funnel --bg $Port 2>&1 | Out-String
-Write-Host $funnelOut
+Step "Enabling Funnel"
+# `tailscale funnel` blocks forever when the tailnet has not enabled Funnel yet,
+# so run it with a timeout and surface the activation URL instead of hanging.
+$outFile = Join-Path $env:TEMP 'funnel.out.txt'
+$errFile = Join-Path $env:TEMP 'funnel.err.txt'
+Remove-Item $outFile, $errFile -ErrorAction SilentlyContinue
+$proc = Start-Process -FilePath $ts -ArgumentList @('funnel', '--bg', "$Port") -PassThru -WindowStyle Hidden `
+    -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+$exited = $proc.WaitForExit(45000)
+if (-not $exited) { try { $proc.Kill() } catch { } ; Start-Sleep -Seconds 2 }
+$funnelOut = ''
+foreach ($f in @($outFile, $errFile)) { if (Test-Path $f) { $funnelOut += (Get-Content $f -Raw) } }
+$funnelOut = $funnelOut.Trim()
+if ($funnelOut) { Write-Host $funnelOut }
+
+$activate = [regex]::Match($funnelOut, 'https://login\.tailscale\.com/f/funnel\S*')
+if ($activate.Success) {
+    Write-Host ""
+    Write-Host "==================================================" -ForegroundColor Yellow
+    Write-Host " Funnel belum aktif di tailnet ini." -ForegroundColor Yellow
+    Write-Host " Buka URL di bawah, klik Enable Funnel, lalu jalankan" -ForegroundColor Yellow
+    Write-Host " skrip ini sekali lagi:" -ForegroundColor Yellow
+    Write-Host " $($activate.Value)" -ForegroundColor White
+    Write-Host "==================================================" -ForegroundColor Yellow
+    return
+}
+
 $funnelStatus = & $ts funnel status 2>&1 | Out-String
 Write-Host $funnelStatus
 

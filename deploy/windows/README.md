@@ -93,6 +93,11 @@ Kalau Funnel belum aktif, aktifkan dulu di admin console:
 
 URL tetap bentuknya `https://earnapp-monitor.<tailnet>.ts.net` dan tetap hidup setelah reboot.
 
+Kalau `tailscale funnel` menggantung atau menampilkan *"Funnel is not enabled on your tailnet"*,
+buka link `https://login.tailscale.com/f/funnel?node=...` yang dicetak, klik **Enable Funnel**,
+lalu jalankan skrip/perintah sekali lagi. Konfigurasi Funnel tersimpan di state `tailscaled`,
+jadi tetap aktif setelah service restart maupun reboot (tidak perlu scheduled task tambahan).
+
 ## Operasional
 
 | Aksi | Perintah |
