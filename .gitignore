@@ -9,3 +9,5 @@ venv/
 tools/cloudflared.exe
 tools/mingit/
 dist/
+.env.bak*
+.env.*

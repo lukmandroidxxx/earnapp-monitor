@@ -76,17 +76,22 @@ Kalau log Caddy menunjukkan timeout ACME, berarti provider memblokir 80/443 → 
 
 ### Opsi B — Tailscale Funnel (tetap, tanpa buka port)
 
-1. Install Tailscale di RDP: <https://tailscale.com/download/windows> (butuh admin)
-2. Login pakai akun Google
-3. Di admin console Tailscale → **DNS** → aktifkan **HTTPS Certificates**
-4. Di PowerShell RDP:
-
 ```powershell
-tailscale funnel --bg 8080
-tailscale funnel status
+irm https://raw.githubusercontent.com/lukmandroidxxx/earnapp-monitor/main/deploy/windows/setup-funnel.ps1 -OutFile "$env:USERPROFILE\eam-funnel.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\eam-funnel.ps1"
 ```
 
-URL tetap bentuknya `https://<nama-mesin>.<tailnet>.ts.net` dan tetap hidup setelah reboot.
+Skrip memasang Tailscale, menghubungkan mesin sebagai `earnapp-monitor`, lalu
+menjalankan `tailscale funnel --bg 8080`. Pada run pertama ia mencetak URL login
+(`https://login.tailscale.com/a/...`) — buka, login dengan Google/GitHub, lalu
+jalankan skrip sekali lagi.
+
+Kalau Funnel belum aktif, aktifkan dulu di admin console:
+1. <https://login.tailscale.com/admin/dns> → **HTTPS Certificates** → Enable
+2. <https://login.tailscale.com/admin/acls> → tambahkan attribute `funnel` untuk node ini
+3. `tailscale funnel --bg 8080`
+
+URL tetap bentuknya `https://earnapp-monitor.<tailnet>.ts.net` dan tetap hidup setelah reboot.
 
 ## Operasional
 
