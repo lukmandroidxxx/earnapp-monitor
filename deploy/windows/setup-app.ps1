@@ -139,34 +139,44 @@ $batText = ($batText -replace "`r`n", "`n") -replace "`n", "`r`n"
 # ---------------------------------------------------------------- 6. start now
 Step "Starting the dashboard on port $Port"
 $existing = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
-if ($existing.Count -gt 0) { throw "Port $Port is already in use by PID $($existing[0].OwningProcess)" }
-
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$bat`"" -WorkingDirectory $InstallDir -WindowStyle Hidden
-$up = $false
-for ($i = 0; $i -lt 40; $i++) {
-    Start-Sleep -Seconds 2
+if ($existing.Count -gt 0) {
+    Warn "Port $Port already in use by PID $($existing[0].OwningProcess) - checking whether it is the dashboard"
     try {
-        $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/ping" -UseBasicParsing -TimeoutSec 3
-        if ($r.StatusCode -eq 200 -and $r.Content -match 'pong') { $up = $true; break }
-    } catch { }
-}
-if ($up) { Ok "responds on http://127.0.0.1:$Port/ping" }
-else {
-    Warn "no response yet - check $(Join-Path $InstallDir 'data\server.err.log')"
-    Get-Content (Join-Path $InstallDir "data\server.err.log") -Tail 20
+        $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/ping" -UseBasicParsing -TimeoutSec 5
+        if ($r.Content -match 'pong') { Ok "already running - skipping start" }
+        else { throw "Port $Port is in use by another service" }
+    } catch { throw "Port $Port is in use by PID $($existing[0].OwningProcess) and does not answer /ping" }
+} else {
+    Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$bat`"" -WorkingDirectory $InstallDir -WindowStyle Hidden
+    $up = $false
+    for ($i = 0; $i -lt 40; $i++) {
+        Start-Sleep -Seconds 2
+        try {
+            $r = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/ping" -UseBasicParsing -TimeoutSec 3
+            if ($r.StatusCode -eq 200 -and $r.Content -match 'pong') { $up = $true; break }
+        } catch { }
+    }
+    if ($up) { Ok "responds on http://127.0.0.1:$Port/ping" }
+    else {
+        Warn "no response yet - check $(Join-Path $InstallDir 'data\server.err.log')"
+        Get-Content (Join-Path $InstallDir "data\server.err.log") -Tail 20
+    }
 }
 
 # ---------------------------------------------------------------- 7. autostart
 Step "Registering auto-start task"
 $taskName = "EarnAppMonitor"
-schtasks /Delete /TN $taskName /F 2>$null | Out-Null
+cmd /c "schtasks /Delete /TN $taskName /F >nul 2>&1"
 if ($admin) {
-    schtasks /Create /TN $taskName /TR "`"$bat`"" /SC ONSTART /RU SYSTEM /RL HIGHEST /DELAY 0000:30 /F | Out-Null
-    Ok "starts at boot as SYSTEM (survives reboot without logon)"
+  $create = 'schtasks /Create /TN ' + $taskName + ' /TR "\"' + $bat + '\"" /SC ONSTART /RU SYSTEM /RL HIGHEST /DELAY 0000:30 /F >nul 2>&1'
+  cmd /c $create
+  if ($LASTEXITCODE -eq 0) { Ok "starts at boot as SYSTEM (survives reboot without logon)" }
+  else { Warn "could not create the SYSTEM boot task (exit $LASTEXITCODE)" }
 } else {
-    schtasks /Create /TN $taskName /TR "`"$bat`"" /SC ONLOGON /RL LIMITED /DELAY 0000:30 /F | Out-Null
-    Ok "starts at logon of $env:USERNAME"
-    Warn "without admin it only starts after someone logs in; ask the provider for admin or use a boot task"
+  $create = 'schtasks /Create /TN ' + $taskName + ' /TR "\"' + $bat + '\"" /SC ONLOGON /RL LIMITED /DELAY 0000:30 /F >nul 2>&1'
+  cmd /c $create
+  Ok "starts at logon of $env:USERNAME"
+  Warn "without admin it only starts after someone logs in; ask the provider for admin or use a boot task"
 }
 
 # ---------------------------------------------------------------- 8. firewall

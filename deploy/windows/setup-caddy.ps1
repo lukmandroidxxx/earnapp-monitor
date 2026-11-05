@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 # EarnApp Monitor - public HTTPS in front of the app, using Caddy + sslip.io.
 # No domain needed: <your-public-ip>.sslip.io resolves to your IP.
 # Requires Administrator (firewall + boot task) and inbound TCP 80 + 443 open.
@@ -60,16 +60,16 @@ Ok $caddyExe
 # ---------------------------------------------------------------- config
 Step "Writing Caddyfile"
 $caddyfile = Join-Path $tools "Caddyfile"
-$global = "{" + "`r`n"
-if ($Email) { $global += "    email $Email`r`n" }
-$global += "    admin off`r`n}" + "`r`n"
+$caddyGlobal = "{" + "`r`n"
+if ($Email) { $caddyGlobal += "    email $Email`r`n" }
+$caddyGlobal += "    admin off`r`n}" + "`r`n"
 $site = @"
 $Domain {
     encode gzip
     reverse_proxy 127.0.0.1:$Port
 }
 "@
-[System.IO.File]::WriteAllText($caddyfile, $global + $site, (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText($caddyfile, $caddyGlobal + $site, (New-Object System.Text.UTF8Encoding($false)))
 Ok $caddyfile
 
 & $caddyExe validate --config $caddyfile --adapter caddyfile
@@ -99,11 +99,12 @@ Start-Sleep -Seconds 8
 
 # ---------------------------------------------------------------- boot task
 $taskName = "EarnAppMonitorCaddy"
-schtasks /Delete /TN $taskName /F 2>$null | Out-Null
+cmd /c "schtasks /Delete /TN $taskName /F >nul 2>&1"
 if ($admin) {
     Step "Registering Caddy boot task"
-    schtasks /Create /TN $taskName /TR "`"$bat`"" /SC ONSTART /RU SYSTEM /RL HIGHEST /DELAY 0000:45 /F | Out-Null
-    Ok "Caddy starts at boot"
+    $create = 'schtasks /Create /TN ' + $taskName + ' /TR "\"' + $bat + '\"" /SC ONSTART /RU SYSTEM /RL HIGHEST /DELAY 0000:45 /F >nul 2>&1'
+    cmd /c $create
+    if ($LASTEXITCODE -eq 0) { Ok "Caddy starts at boot" } else { Warn "could not create the Caddy boot task (exit $LASTEXITCODE)" }
 }
 
 # ---------------------------------------------------------------- verify
