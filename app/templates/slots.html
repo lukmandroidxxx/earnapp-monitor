@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Semua slot · EarnApp Monitor{% endblock %}
+{% block content %}
+
+<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+  <div>
+    <h1 class="text-xl font-semibold">Semua device slot</h1>
+    <p class="text-sm text-slate-400">{{ rows | length }} slot ditampilkan · urut dari usage tertinggi</p>
+  </div>
+</div>
+
+<form method="get" action="/slots" class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4 mb-5">
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+    <label class="block">
+      <span class="text-[11px] uppercase tracking-wide text-slate-500">Akun</span>
+      <select name="account" class="mt-1 w-full bg-slate-950/60 ring-1 ring-slate-800 rounded-lg px-3 py-2 text-sm">
+        <option value="">Semua akun</option>
+        {% for item in accounts %}
+        <option value="{{ item.id }}" {{ "selected" if filters.account == item.id }}>{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="block">
+      <span class="text-[11px] uppercase tracking-wide text-slate-500">Status</span>
+      <select name="status" class="mt-1 w-full bg-slate-950/60 ring-1 ring-slate-800 rounded-lg px-3 py-2 text-sm">
+        <option value="">Semua status</option>
+        {% for key, label in STATUS_LABELS.items() %}
+        <option value="{{ key }}" {{ "selected" if filters.status == key }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="block">
+      <span class="text-[11px] uppercase tracking-wide text-slate-500">Usage minimal</span>
+      <input type="number" name="min_usage" min="0" value="{{ filters.min_usage or '' }}" placeholder="0"
+        class="mt-1 w-full bg-slate-950/60 ring-1 ring-slate-800 rounded-lg px-3 py-2 text-sm">
+    </label>
+    <label class="block">
+      <span class="text-[11px] uppercase tracking-wide text-slate-500">Cari</span>
+      <input type="text" name="q" value="{{ filters.q }}" placeholder="IP / region / akun"
+        class="mt-1 w-full bg-slate-950/60 ring-1 ring-slate-800 rounded-lg px-3 py-2 text-sm">
+    </label>
+    <div class="flex items-end gap-2">
+      <button class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium">Terapkan</button>
+      <a href="/slots" class="px-3 py-2 rounded-lg bg-slate-800 ring-1 ring-slate-700 text-sm">Reset</a>
+    </div>
+  </div>
+</form>
+
+<div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 overflow-hidden">
+  {% if rows %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-900 text-slate-400 text-xs uppercase tracking-wide">
+        <tr>
+          <th class="text-left px-4 py-2.5">Akun</th>
+          <th class="text-left px-4 py-2.5">Baris</th>
+          <th class="text-left px-4 py-2.5">Region</th>
+          <th class="text-left px-4 py-2.5">IP sheet</th>
+          <th class="text-left px-4 py-2.5">IP keluar</th>
+          <th class="text-right px-4 py-2.5">Count</th>
+          <th class="text-right px-4 py-2.5">Uptime</th>
+          <th class="text-left px-4 py-2.5">Status</th>
+          <th class="text-left px-4 py-2.5">Terakhir</th>
+          <th class="px-4 py-2.5"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800/80">
+        {% for slot, account_name in rows %}
+        <tr class="hover:bg-slate-800/30 {{ 'opacity-50' if not slot.enabled }}">
+          <td class="px-4 py-3">
+            <a href="/accounts/{{ slot.account_id }}" class="font-medium hover:text-emerald-300">{{ account_name }}</a>
+          </td>
+          <td class="px-4 py-3">
+            <span class="mono text-xs px-2 py-1 rounded bg-slate-800 ring-1 ring-slate-700">#{{ slot.sheet_row or "?" }}</span>
+          </td>
+          <td class="px-4 py-3 text-xs text-slate-400 max-w-[16rem] truncate" title="{{ slot.region or '' }}">{{ slot.region or "-" }}</td>
+          <td class="px-4 py-3 mono text-xs">{{ slot.declared_ip_raw or "—" }}</td>
+          <td class="px-4 py-3 mono text-xs {{ 'text-emerald-300' if slot.detected_ip and slot.detected_ip == slot.declared_ip_raw else ('text-amber-300' if slot.detected_ip else 'text-slate-500') }}">
+            {{ slot.detected_ip or "—" }}
+          </td>
+          <td class="px-4 py-3 text-right mono {{ usage_class(slot.usage_count) }}">{{ slot.usage_count }}</td>
+          <td class="px-4 py-3 text-right mono text-xs {{ uptime_class(uptime.get(slot.id)) }}">
+            {{ uptime.get(slot.id) ~ "%" if uptime.get(slot.id) is not none else "—" }}
+          </td>
+          <td class="px-4 py-3">
+            {{ status_badge(slot.status) }}
+            {% if slot.status_reason %}
+            <div class="text-[11px] text-slate-500 mt-1 max-w-[16rem] truncate" title="{{ slot.status_reason }}">{{ slot.status_reason }}</div>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-xs text-slate-400">{{ slot.last_check | dt }}</td>
+          <td class="px-4 py-3 text-right">
+            <form method="post" action="/slots/{{ slot.id }}/check">
+              <button class="text-xs px-2.5 py-1 rounded-md ring-1 ring-slate-700 hover:bg-slate-800">Cek</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-4 py-10 text-center text-sm text-slate-500">Tidak ada slot yang cocok dengan filter.</div>
+  {% endif %}
+</div>
+
+{% endblock %}

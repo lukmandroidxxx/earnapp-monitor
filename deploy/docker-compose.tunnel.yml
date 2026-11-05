@@ -1,0 +1,41 @@
+# Alternatif tanpa membuka port 80/443 dan tanpa domain:
+# Cloudflare Quick Tunnel. URL acak dan berubah setiap container cloudflared
+# di-restart. Jalankan dari folder deploy:
+#
+#   docker compose -f docker-compose.tunnel.yml up -d --build
+#   docker compose -f docker-compose.tunnel.yml logs -f cloudflared
+#
+# Jangan jalankan bersamaan dengan docker-compose.yml utama (SQLite hanya
+# boleh dipakai satu instance app).
+name: earnapp-monitor-tunnel
+
+services:
+  app:
+    build: ..
+    image: earnapp-monitor:latest
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      LOGIN_HELPER: "0"
+    volumes:
+      - ../data:/app/data
+      - ../secrets:/app/secrets
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8080), 3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://app:8080
+    depends_on:
+      app:
+        condition: service_healthy

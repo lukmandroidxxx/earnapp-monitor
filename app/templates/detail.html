@@ -1,0 +1,437 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }} · EarnApp Monitor{% endblock %}
+{% block content %}
+
+<div class="mb-4">
+  <a href="/" class="text-xs text-slate-400 hover:text-slate-200">← Dashboard</a>
+</div>
+
+<div class="flex flex-wrap items-start justify-between gap-3 mb-5">
+  <div>
+    <h1 class="text-xl font-semibold flex items-center gap-2">
+      {{ account.name }}
+      {{ status_badge(account.status) }}
+      {{ auth_badge(account) }}
+    </h1>
+    <p class="text-sm text-slate-400 mt-1">
+      Group {{ account.group_name or "-" }} · Local IP {{ account.local_ip or "-" }} ·
+      {{ "diaktifkan" if account.enabled else "dipause" }}
+    </p>
+    {% if account.status_reason %}
+    <p class="text-xs text-amber-300/80 mt-1">{{ account.status_reason }}</p>
+    {% endif %}
+  </div>
+  <div class="flex gap-2">
+    <form method="post" action="/accounts/{{ account.id }}/toggle">
+      <button class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700 text-sm">
+        {{ "Pause akun" if account.enabled else "Aktifkan akun" }}
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+  <div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Slot sehat</div>
+    <div class="text-2xl font-semibold mt-1 text-emerald-300">{{ stats.ok }}/{{ stats.active }}</div>
+  </div>
+  <div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Perlu diganti</div>
+    <div class="text-2xl font-semibold mt-1 {{ 'text-rose-300' if stats.problems else 'text-slate-400' }}">{{ stats.problems }}</div>
+  </div>
+  <div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Usage rata² / max</div>
+    <div class="text-2xl font-semibold mt-1 mono">
+      <span class="{{ usage_class(stats.avg_usage) }}">{{ stats.avg_usage }}</span>
+      <span class="text-slate-600 text-lg">/</span>
+      <span class="{{ usage_class(stats.max_usage) }}">{{ stats.max_usage }}</span>
+    </div>
+  </div>
+  <div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Region</div>
+    <div class="text-2xl font-semibold mt-1">{{ stats.regions }}</div>
+  </div>
+  <div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Blacklist</div>
+    <div class="text-2xl font-semibold mt-1">{{ stats.blacklist }}</div>
+  </div>
+</div>
+
+<div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4 mb-6">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <div>
+      <div class="font-medium">Sesi EarnApp</div>
+      <div class="text-xs text-slate-500">Cookie hanya untuk membaca saldo &amp; node. Disimpan terenkripsi, tidak ditulis ke sheet.</div>
+    </div>
+    {{ auth_badge(account) }}
+  </div>
+
+  {% if account.auth_reason %}
+  <div class="mt-3 rounded-lg px-3 py-2 text-xs ring-1
+    {{ 'bg-rose-500/10 text-rose-200 ring-rose-500/25' if account.auth_status == 'EXPIRED' else ('bg-amber-500/10 text-amber-200 ring-amber-500/25' if account.auth_status == 'ERROR' else 'bg-slate-950/40 text-slate-400 ring-slate-800') }}">
+    {{ account.auth_reason }}
+  </div>
+  {% endif %}
+
+  {% if account.auth_status == "OK" %}
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+    <div class="rounded-lg bg-slate-950/50 ring-1 ring-slate-800 p-3">
+      <div class="text-[11px] uppercase tracking-wide text-slate-500">Saldo</div>
+      <div class="text-lg font-semibold mono">{{ account.balance | money }}</div>
+    </div>
+    <div class="rounded-lg bg-slate-950/50 ring-1 ring-slate-800 p-3">
+      <div class="text-[11px] uppercase tracking-wide text-slate-500">Lifetime</div>
+      <div class="text-lg font-semibold mono">{{ account.lifetime | money }}</div>
+    </div>
+    <div class="rounded-lg bg-slate-950/50 ring-1 ring-slate-800 p-3">
+      <div class="text-[11px] uppercase tracking-wide text-slate-500">Node online</div>
+      <div class="text-lg font-semibold">{{ account.nodes_online if account.nodes_online is not none else "-" }}</div>
+    </div>
+    <div class="rounded-lg bg-slate-950/50 ring-1 ring-slate-800 p-3">
+      <div class="text-[11px] uppercase tracking-wide text-slate-500">IP request API</div>
+      <div class="text-sm font-medium mono">{{ account.auth_ip or "-" }}</div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if login_enabled %}
+  <div class="mt-4 rounded-lg bg-emerald-500/5 ring-1 ring-emerald-500/20 p-3">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="min-w-0">
+        <div class="text-sm font-medium text-emerald-200">Login otomatis (Google)</div>
+        <div class="text-xs text-slate-400 mt-0.5">
+          Chrome terbuka lewat proxy akun ini. Login seperti biasa, lalu
+          <span class="text-slate-200">tutup jendela browser</span> — cookie (termasuk httpOnly)
+          tersimpan otomatis. Browser helper <span class="text-slate-200">tidak perlu extension</span>;
+          kalau butuh JSON, pakai tombol <span class="text-slate-200">Download cookie JSON</span> di bawah.
+          Kredensial Google tidak pernah disimpan.
+        </div>
+      </div>
+      {% if not (login and login.active) %}
+      <form method="post" action="/accounts/{{ account.id }}/login" class="shrink-0">
+        <button class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium">Buka browser login</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div id="login-status" data-account="{{ account.id }}" data-status="{{ login.status if login else 'idle' }}"
+         class="mt-3 {{ 'flex' if login and login.status in ['starting', 'running', 'saving', 'saved', 'failed', 'cancelled'] else 'hidden' }} flex-wrap items-center gap-2 rounded-md bg-slate-950/50 ring-1 ring-slate-800 px-3 py-2 text-xs">
+      <span id="login-dot" class="h-2 w-2 rounded-full {{ 'bg-sky-400 animate-pulse' if login and login.status in ['starting', 'running'] else ('bg-amber-400' if login and login.status == 'saving' else ('bg-emerald-400' if login and login.status == 'saved' else ('bg-rose-400' if login and login.status == 'failed' else 'bg-slate-500'))) }}"></span>
+      <span id="login-message" class="text-slate-300 flex-1 min-w-0">{{ login.message if login else '' }}</span>
+      <span id="login-meta" class="text-slate-500">{{ (login.cookie_count ~ ' cookie') if login and login.cookie_count else '' }}</span>
+      <div id="login-actions" class="ml-auto flex gap-2 {{ 'hidden' if not (login and login.active) }}">
+        <form method="post" action="/accounts/{{ account.id }}/login/finish">
+          <button class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white">Simpan sekarang</button>
+        </form>
+        <form method="post" action="/accounts/{{ account.id }}/login/cancel">
+          <button class="px-2.5 py-1 rounded-md ring-1 ring-slate-700 text-slate-300 hover:bg-slate-800">Batalkan</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/accounts/{{ account.id }}/cookie" class="mt-4 space-y-2">
+    <textarea name="cookie" rows="3" spellcheck="false"
+      placeholder="Tempel header Cookie atau JSON hasil Cookie-Editor (situs earnapp.com)…"
+      class="w-full mono text-xs bg-slate-950/60 ring-1 ring-slate-800 rounded-lg px-3 py-2 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-emerald-500/50"></textarea>
+    <p class="text-[11px] text-slate-500">
+      Bisa tempel header <span class="mono">Cookie: …</span> atau <span class="text-slate-300">JSON hasil
+      Cookie-Editor/EditThisCookie</span>. Hanya cookie domain <span class="mono">earnapp.com</span> yang
+      dipakai; cookie yang sudah kedaluwarsa diabaikan. Kalau kotak dibiarkan kosong,
+      cookie yang sudah tersimpan <span class="text-slate-300">tidak berubah</span> —
+      menghapus hanya lewat tombol “Hapus cookie”.
+    </p>
+    <div class="flex flex-wrap gap-2">
+      <button type="submit" name="test" value="1" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium">Simpan &amp; test login</button>
+      <button type="submit" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700 text-sm">Simpan saja</button>
+      <button type="submit" formaction="/accounts/{{ account.id }}/cookie/clear"
+        onclick="return confirm('Hapus cookie akun ini? Login helper perlu dijalankan lagi setelahnya.');"
+        class="px-3 py-2 rounded-lg text-sm text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/10">Hapus cookie</button>
+    </div>
+  </form>
+
+  <div class="mt-3 flex flex-wrap items-center gap-3">
+    <form method="post" action="/accounts/{{ account.id }}/test">
+      <button class="text-xs px-3 py-1.5 rounded-md bg-slate-800 ring-1 ring-slate-700 hover:bg-slate-700">Test login sekarang</button>
+    </form>
+    {% if account.cookie_enc %}
+    <a href="/accounts/{{ account.id }}/cookie.json" download
+       class="text-xs px-3 py-1.5 rounded-md bg-slate-800 ring-1 ring-slate-700 hover:bg-slate-700">Download cookie JSON</a>
+    {% endif %}
+    {% if account.auth_checked_at %}
+    <span class="text-xs text-slate-500">Terakhir dites {{ account.auth_checked_at | dt }}</span>
+    {% endif %}
+    {% if account.cookie_enc %}
+    <span class="text-xs text-emerald-400/80">cookie tersimpan</span>
+    {% else %}
+    <span class="text-xs text-slate-500">belum ada cookie</span>
+    {% endif %}
+    {% if account.cookie_enc and account.auth_status == "NOT_SET" %}
+    <span class="text-xs text-sky-300/80">cookie ada, tinggal Test login untuk verifikasi</span>
+    {% endif %}
+  </div>
+
+  <details class="mt-3 text-xs text-slate-500">
+    <summary class="cursor-pointer hover:text-slate-300">Cara manual (cadangan)</summary>
+    <ol class="list-decimal list-inside mt-2 space-y-1">
+      {% if login_enabled %}
+      <li>Klik <span class="text-slate-300">Buka browser login</span> di atas; Chrome otomatis lewat proxy akun ini.</li>
+      <li>Login dengan Google sampai masuk dashboard EarnApp.</li>
+      <li>Tutup jendela Chrome (atau klik <span class="text-slate-300">Simpan sekarang</span>) — cookie tersimpan otomatis.</li>
+      <li>Kalau helper gagal, login di Chrome biasa, export cookie dengan extension
+        <span class="text-slate-300">Cookie-Editor</span> (format JSON, untuk situs
+        <span class="mono">earnapp.com</span>), lalu tempel JSON-nya di kotak di atas.
+        Kalau browser login tidak punya extension, klik
+        <span class="text-slate-300">Download cookie JSON</span> untuk memakai cookie
+        yang sudah tersimpan di browser/tool lain.</li>
+      {% else %}
+      <li>Login helper dimatikan di server ini (tidak ada desktop). Login di Chrome
+        biasa di PC/laptop Anda sampai masuk dashboard EarnApp.</li>
+      <li>Export cookie <span class="mono">earnapp.com</span> dengan extension
+        <span class="text-slate-300">Cookie-Editor</span> (format JSON), lalu tempel
+        JSON-nya di kotak di atas.</li>
+      <li>Klik <span class="text-slate-300">Simpan &amp; test login</span> untuk
+        memastikan cookie valid di server.</li>
+      {% endif %}
+      <li>Isi <span class="mono">EARN_APP_BALANCE_URL</span> di <span class="mono">.env</span> untuk membaca saldo.</li>
+    </ol>
+  </details>
+</div>
+
+<div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 overflow-hidden mb-6">
+  <div class="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+    <div>
+      <div class="font-medium">Device EarnApp <span class="text-slate-500 font-normal">({{ device_rows | length }})</span></div>
+      <div class="text-xs text-slate-500">Data dari API EarnApp: status online, usage harian, dan banned/IP.</div>
+    </div>
+    <div class="flex flex-wrap items-center gap-3">
+      {% if earn_account %}
+      <div class="text-xs text-slate-400">
+        <span class="text-emerald-300 mono">{{ earn_account.online }}</span>/{{ earn_account.devices }} online ·
+        <span class="{{ 'text-rose-300' if earn_account.banned else 'text-slate-400' }} mono">{{ earn_account.banned }}</span> banned
+      </div>
+      {% endif %}
+      <form method="post" action="/accounts/{{ account.id }}/devices/refresh">
+        <button class="px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium">Refresh device</button>
+      </form>
+    </div>
+  </div>
+
+  {% if device_rows | selectattr('ip_in_pool') | list %}
+  <div class="px-4 py-3 bg-amber-500/10 ring-1 ring-inset ring-amber-500/30 text-xs text-amber-200">
+    Ada IP banned yang masih dipakai proxy akun ini. Ganti IP di baris sheet tersebut, lalu Sync sheet.
+  </div>
+  {% endif %}
+
+  {% if device_rows %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-900 text-slate-400 text-xs uppercase tracking-wide">
+        <tr>
+          <th class="text-left px-4 py-2.5">Device</th>
+          <th class="text-left px-4 py-2.5">Status</th>
+          <th class="text-left px-4 py-2.5">Banned</th>
+          <th class="text-right px-4 py-2.5">Usage 1d</th>
+          <th class="text-right px-4 py-2.5">Usage 7d</th>
+          <th class="text-right px-4 py-2.5">Earned total</th>
+          <th class="text-left px-4 py-2.5">Terakhir terlihat</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800/80">
+        {% for row in device_rows %}
+        {% set device = row.device %}
+        <tr class="hover:bg-slate-800/30">
+          <td class="px-4 py-3">
+            <div class="font-medium">{{ device.title or device.uuid }}</div>
+            <div class="mono text-[10px] text-slate-500">{{ device.uuid }}</div>
+          </td>
+          <td class="px-4 py-3">
+            {% if device.banned_reason %}
+            <span class="px-2 py-0.5 rounded-md text-xs font-medium ring-1 bg-rose-500/15 text-rose-300 ring-rose-500/30">BANNED</span>
+            {% elif device.online %}
+            <span class="px-2 py-0.5 rounded-md text-xs font-medium ring-1 bg-emerald-500/15 text-emerald-300 ring-emerald-500/30">ONLINE</span>
+            {% elif device.online_known %}
+            <span class="px-2 py-0.5 rounded-md text-xs font-medium ring-1 bg-slate-500/15 text-slate-300 ring-slate-500/30">OFFLINE</span>
+            {% else %}
+            <span class="px-2 py-0.5 rounded-md text-xs font-medium ring-1 bg-sky-500/15 text-sky-300 ring-sky-500/30">BELUM DIKETAHUI</span>
+            {% endif %}
+            {% if device.country %}<div class="text-[10px] text-slate-500 uppercase mt-1">{{ device.country }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 text-xs">
+            {% if device.banned_reason %}
+            <div class="text-rose-300">{{ device.banned_reason }}</div>
+            <div class="mono text-slate-400">{{ device.banned_ip or "—" }}</div>
+            {% if row.ip_in_pool %}<div class="text-[10px] text-amber-300">IP ini masih dipakai proxy akun</div>{% endif %}
+            {% else %}
+            <span class="text-slate-500">—</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right mono text-xs text-emerald-300">{{ row.usage_today | duration }}</td>
+          <td class="px-4 py-3 text-right mono text-xs text-violet-300">{{ row.usage_week | duration }}</td>
+          <td class="px-4 py-3 text-right mono text-xs">{{ device.earned_total | money }}</td>
+          <td class="px-4 py-3 text-xs text-slate-400">{{ device.last_seen | dt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-4 py-8 text-center text-sm text-slate-500">
+    Belum ada data device EarnApp untuk akun ini. Pastikan cookie tersimpan, lalu klik
+    <span class="text-slate-300">Refresh device</span>.
+  </div>
+  {% endif %}
+</div>
+
+<div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 overflow-hidden mb-6">
+  <div class="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+    <div class="font-medium">Device slot <span class="text-slate-500 font-normal">({{ slots | length }})</span></div>
+    <div class="text-xs text-slate-500">Ganti IP di baris sheet yang ditandai, lalu Sync</div>
+  </div>
+  {% if slots %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-900 text-slate-400 text-xs uppercase tracking-wide">
+        <tr>
+          <th class="text-left px-4 py-2.5">Baris</th>
+          <th class="text-left px-4 py-2.5">Region</th>
+          <th class="text-left px-4 py-2.5">IP sheet</th>
+          <th class="text-left px-4 py-2.5">IP keluar</th>
+          <th class="text-right px-4 py-2.5">Count</th>
+          <th class="text-right px-4 py-2.5">Uptime 24j</th>
+          <th class="text-left px-4 py-2.5">Status</th>
+          <th class="text-right px-4 py-2.5">Latency</th>
+          <th class="text-left px-4 py-2.5">Terakhir</th>
+          <th class="px-4 py-2.5"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800/80">
+        {% for slot in slots %}
+        <tr class="hover:bg-slate-800/30 {{ 'opacity-50' if not slot.enabled }}">
+          <td class="px-4 py-3">
+            <span class="mono text-xs px-2 py-1 rounded bg-slate-800 ring-1 ring-slate-700">#{{ slot.sheet_row or "?" }}</span>
+          </td>
+          <td class="px-4 py-3 text-xs text-slate-400">{{ slot.region or "-" }}</td>
+          <td class="px-4 py-3 mono text-xs">{{ slot.declared_ip_raw or "—" }}</td>
+          <td class="px-4 py-3 mono text-xs {{ 'text-emerald-300' if slot.detected_ip and slot.detected_ip == slot.declared_ip_raw else ('text-amber-300' if slot.detected_ip else 'text-slate-500') }}">
+            {{ slot.detected_ip or "—" }}
+          </td>
+          <td class="px-4 py-3 text-right mono {{ usage_class(slot.usage_count) }}">{{ slot.usage_count }}</td>
+          <td class="px-4 py-3 text-right mono text-xs {{ uptime_class(uptime.get(slot.id)) }}">
+            {{ uptime.get(slot.id) ~ "%" if uptime.get(slot.id) is not none else "—" }}
+          </td>
+          <td class="px-4 py-3">
+            {{ status_badge(slot.status) }}
+            {% if slot.status_reason %}
+            <div class="text-[11px] text-slate-500 mt-1 max-w-[16rem] truncate" title="{{ slot.status_reason }}">{{ slot.status_reason }}</div>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right mono text-xs">{{ slot.latency_ms ~ " ms" if slot.latency_ms else "—" }}</td>
+          <td class="px-4 py-3 text-xs text-slate-400">{{ slot.last_check | dt }}</td>
+          <td class="px-4 py-3 text-right">
+            <form method="post" action="/slots/{{ slot.id }}/check">
+              <button class="text-xs px-2.5 py-1 rounded-md ring-1 ring-slate-700 hover:bg-slate-800">Cek</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-4 py-8 text-center text-sm text-slate-500">Tidak ada slot untuk akun ini.</div>
+  {% endif %}
+</div>
+
+<div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 overflow-hidden">
+  <div class="px-4 py-3 border-b border-slate-800 font-medium">Riwayat cek terakhir</div>
+  {% if checks %}
+  <div class="overflow-x-auto max-h-80 overflow-y-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-900 text-slate-400 text-xs uppercase tracking-wide sticky top-0">
+        <tr>
+          <th class="text-left px-4 py-2.5">Waktu</th>
+          <th class="text-left px-4 py-2.5">Slot</th>
+          <th class="text-left px-4 py-2.5">IP keluar</th>
+          <th class="text-left px-4 py-2.5">Hasil</th>
+          <th class="text-right px-4 py-2.5">Latency</th>
+          <th class="text-left px-4 py-2.5">Catatan</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800/80">
+        {% for check, hint in checks %}
+        <tr>
+          <td class="px-4 py-2 text-xs text-slate-400">{{ check.created_at | dt }}</td>
+          <td class="px-4 py-2 mono text-xs text-slate-400">{{ hint }}</td>
+          <td class="px-4 py-2 mono text-xs">{{ check.ip or "—" }}</td>
+          <td class="px-4 py-2">
+            <span class="text-xs {{ 'text-emerald-300' if check.ok else 'text-rose-300' }}">{{ "OK" if check.ok else "GAGAL" }}</span>
+          </td>
+          <td class="px-4 py-2 text-right mono text-xs">{{ check.latency_ms ~ " ms" if check.latency_ms else "—" }}</td>
+          <td class="px-4 py-2 text-xs text-slate-500 max-w-[26rem] truncate" title="{{ check.note or '' }}">{{ check.note or "-" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-4 py-8 text-center text-sm text-slate-500">Belum ada riwayat cek.</div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{% if login_enabled %}
+<script>
+(function () {
+  const box = document.getElementById('login-status');
+  if (!box) return;
+  const accountId = box.dataset.account;
+  const dot = document.getElementById('login-dot');
+  const message = document.getElementById('login-message');
+  const meta = document.getElementById('login-meta');
+  const actions = document.getElementById('login-actions');
+  const colors = {
+    starting: '#38bdf8', running: '#38bdf8', saving: '#fbbf24',
+    saved: '#34d399', failed: '#fb7185', cancelled: '#94a3b8'
+  };
+  let last = box.dataset.status;
+
+  function render(data) {
+    box.classList.remove('hidden');
+    box.classList.add('flex');
+    dot.className = 'h-2 w-2 rounded-full' + (data.status === 'starting' || data.status === 'running' ? ' animate-pulse' : '');
+    dot.style.background = colors[data.status] || '#64748b';
+    message.textContent = data.message || '';
+    meta.textContent = data.cookie_count ? data.cookie_count + ' cookie' : '';
+    if (actions) {
+      if (data.active) actions.classList.remove('hidden');
+      else actions.classList.add('hidden');
+    }
+  }
+
+  async function tick() {
+    try {
+      const res = await fetch('/accounts/' + accountId + '/login/status', { cache: 'no-store' });
+      const data = await res.json();
+      if (data.status === 'idle') return;
+      render(data);
+      if ((data.status === 'saved' || data.status === 'failed') && data.status !== last) {
+        last = data.status;
+        setTimeout(function () { location.reload(); }, 1200);
+        return;
+      }
+      last = data.status;
+      if (data.active) setTimeout(tick, 1500);
+    } catch (err) {
+      setTimeout(tick, 3000);
+    }
+  }
+
+  if (['starting', 'running', 'saving'].includes(box.dataset.status)) tick();
+})();
+</script>
+{% endif %}
+{% endblock %}

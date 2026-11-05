@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Device EarnApp · EarnApp Monitor{% endblock %}
+{% block content %}
+
+<div class="flex flex-wrap items-end justify-between gap-3 mb-5">
+  <div>
+    <h1 class="text-xl font-semibold">Device EarnApp</h1>
+    <p class="text-sm text-slate-400">
+      Data device, status online, usage, dan banned dari API EarnApp — bukan dari IP di sheet.
+      {% if earn.synced_at %}Terakhir sync {{ earn.synced_at | dt }}.{% endif %}
+    </p>
+  </div>
+  <form method="post" action="/earnapp/refresh">
+    <button class="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium">Refresh data EarnApp</button>
+  </form>
+</div>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+  <div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Total device</div>
+    <div class="text-2xl font-semibold mt-1">{{ earn.total }}</div>
+  </div>
+  <div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Online</div>
+    <div class="text-2xl font-semibold mt-1 text-emerald-300">{{ earn.online }}</div>
+  </div>
+  <div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Offline</div>
+    <div class="text-2xl font-semibold mt-1 text-slate-300">{{ earn.offline }}</div>
+  </div>
+  <div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-400">Banned</div>
+    <div class="text-2xl font-semibold mt-1 {{ 'text-rose-300' if earn.banned else 'text-slate-400' }}">{{ earn.banned }}</div>
+  </div>
+</div>
+
+<div class="rounded-xl bg-slate-900/70 ring-1 ring-slate-800 overflow-hidden">
+  <form method="get" action="/devices" class="px-4 py-3 border-b border-slate-800 flex flex-wrap items-end gap-3">
+    <div>
+      <label class="block text-[11px] uppercase tracking-wide text-slate-500 mb-1">Akun</label>
+      <select name="account" class="bg-slate-950 ring-1 ring-slate-700 rounded-md px-2.5 py-1.5 text-sm">
+        <option value="">Semua akun</option>
+        {% for item in accounts %}
+        <option value="{{ item.id }}" {{ 'selected' if filters.account == item.id }}>{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-[11px] uppercase tracking-wide text-slate-500 mb-1">Status</label>
+      <select name="status" class="bg-slate-950 ring-1 ring-slate-700 rounded-md px-2.5 py-1.5 text-sm">
+        <option value="">Semua</option>
+        <option value="online" {{ 'selected' if filters.status == 'online' }}>Online</option>
+        <option value="offline" {{ 'selected' if filters.status == 'offline' }}>Offline</option>
+        <option value="banned" {{ 'selected' if filters.status == 'banned' }}>Banned</option>
+      </select>
+    </div>
+    <button class="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 ring-1 ring-slate-700 text-sm">Terapkan</button>
+    <div class="ml-auto text-xs text-slate-500">{{ rows | length }} device ditampilkan</div>
+  </form>
+
+  {% if rows %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-900 text-slate-400 text-xs uppercase tracking-wide">
+        <tr>
+          <th class="text-left px-4 py-2.5">Device</th>
+          <th class="text-left px-4 py-2.5">Akun</th>
+          <th class="text-left px-4 py-2.5">Status</th>
+          <th class="text-left px-4 py-2.5">Banned / IP</th>
+          <th class="text-right px-4 py-2.5">Usage 1d</th>
+          <th class="text-right px-4 py-2.5">Usage 7d</th>
+          <th class="text-right px-4 py-2.5">Earned total</th>
+          <th class="text-left px-4 py-2.5">Terakhir terlihat</th>
+          <th class="px-4 py-2.5"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-800/80">
+        {% for row in rows %}
+        {% set device = row.device %}
+        <tr class="hover:bg-slate-800/30">
+          <td class="px-4 py-3">
+            <div class="font-medium">{{ device.title or device.uuid }}</div>
+            <div class="mono text-[10px] text-slate-500">{{ device.uuid }}</div>
+          </td>
+          <td class="px-4 py-3">
+            <a href="/accounts/{{ row.account.id }}" class="hover:text-emerald-300">{{ row.account.name }}</a>
+            <div class="text-[11px] text-slate-500">{{ auth_badge(row.account) }}</div>
+          </td>
+          <td class="px-4 py-3">
+            {% if device.banned_reason %}
+            <span class="px-2 py-0.5 rounded-md text-xs font-medium ring-1 bg-rose-500/15 text-rose-300 ring-rose-500/30">BANNED</span>
+            {% elif device.online %}
+            <span class="px-2 py-0.5 rounded-md text-xs font-medium ring-1 bg-emerald-500/15 text-emerald-300 ring-emerald-500/30">ONLINE</span>
+            {% elif device.online_known %}
+            <span class="px-2 py-0.5 rounded-md text-xs font-medium ring-1 bg-slate-500/15 text-slate-300 ring-slate-500/30">OFFLINE</span>
+            {% else %}
+            <span class="px-2 py-0.5 rounded-md text-xs font-medium ring-1 bg-sky-500/15 text-sky-300 ring-sky-500/30">BELUM DIKETAHUI</span>
+            {% endif %}
+            {% if device.country %}<div class="text-[10px] text-slate-500 uppercase mt-1">{{ device.country }}</div>{% endif %}
+          </td>
+          <td class="px-4 py-3 text-xs">
+            {% if device.banned_reason %}
+            <div class="text-rose-300">{{ device.banned_reason }}</div>
+            <div class="mono text-slate-400">{{ device.banned_ip or "—" }}</div>
+            {% else %}
+            <span class="text-slate-500">—</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right mono text-xs text-emerald-300">{{ row.usage_today | duration }}</td>
+          <td class="px-4 py-3 text-right mono text-xs text-violet-300">{{ row.usage_week | duration }}</td>
+          <td class="px-4 py-3 text-right mono text-xs">{{ device.earned_total | money }}</td>
+          <td class="px-4 py-3 text-xs text-slate-400">{{ device.last_seen | dt }}</td>
+          <td class="px-4 py-3 text-right">
+            <a href="/accounts/{{ row.account.id }}" class="text-xs px-2.5 py-1 rounded-md ring-1 ring-slate-700 hover:bg-slate-800">Kelola</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-4 py-12 text-center text-sm text-slate-400">
+    <p class="mb-2">Belum ada device untuk filter ini.</p>
+    <p class="text-xs text-slate-500">Pastikan akun punya cookie, lalu klik Refresh data EarnApp.</p>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

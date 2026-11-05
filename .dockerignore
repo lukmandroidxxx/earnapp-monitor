@@ -1,0 +1,14 @@
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.env
+.git
+.gitignore
+data
+secrets
+dist
+tools
+start.bat
+*.log

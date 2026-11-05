@@ -1,0 +1,11 @@
+.env
+data/
+secrets/
+__pycache__/
+*.pyc
+*.log
+.venv/
+venv/
+tools/cloudflared.exe
+tools/mingit/
+dist/

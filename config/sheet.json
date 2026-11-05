@@ -1,0 +1,20 @@
+{
+  "read": {
+    "account": ["account", "nama akun", "akun", "nama"],
+    "declared_ip": ["proxy ip", "ip", "ip address", "ip publik"],
+    "endpoint": ["proxy command", "proxy comand", "endpoint", "proxy", "command"],
+    "region": ["country/region", "country region", "country", "region", "lokasi"],
+    "group": ["group", "grup"],
+    "local_ip": ["local ip", "ip lokal"],
+    "usage_count": ["count", "usage", "used", "pemakaian"],
+    "blacklist": ["blacklist", "black list", "blokir"],
+    "cookie": ["cookie", "session", "token"],
+    "enabled": ["aktif", "enabled", "active"]
+  },
+  "write": {
+    "status": "_status",
+    "detected_ip": "_detected_ip",
+    "healthy": "_healthy",
+    "last_check": "_last_check"
+  }
+}
