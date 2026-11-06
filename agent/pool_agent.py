@@ -84,7 +84,8 @@ def load_config(path: Path | None) -> Config:
     for candidate in candidates:
         if candidate.exists():
             try:
-                raw = json.loads(candidate.read_text(encoding="utf-8"))
+                # utf-8-sig supaya tetap terbaca walau file ditulis PowerShell (BOM).
+                raw = json.loads(candidate.read_text(encoding="utf-8-sig"))
             except (OSError, ValueError) as exc:
                 raise SystemExit(f"gagal membaca {candidate}: {exc}")
             break
@@ -633,7 +634,7 @@ def run(config: Config) -> int:
         assignments = {}
         if config.cache_file.exists():
             try:
-                cached = json.loads(config.cache_file.read_text(encoding="utf-8"))
+                cached = json.loads(config.cache_file.read_text(encoding="utf-8-sig"))
                 for item in cached.get("ports") or []:
                     assignment = Assignment.from_payload(item)
                     if assignment is not None:
