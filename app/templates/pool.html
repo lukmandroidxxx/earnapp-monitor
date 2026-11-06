@@ -46,12 +46,23 @@
       <input type="file" name="files" accept=".xlsx,.xlsm" multiple required
              class="block w-full text-sm text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-emerald-500/15 file:text-emerald-300 file:px-3 file:py-1.5 file:text-sm hover:file:bg-emerald-500/25">
     </div>
+    <div>
+      <label class="block text-xs uppercase tracking-wide text-slate-500 mb-1">Akun (opsional)</label>
+      <input name="account" placeholder="mis. mjaya3857"
+             class="rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5 text-sm w-40">
+    </div>
+    <div>
+      <label class="block text-xs uppercase tracking-wide text-slate-500 mb-1">Group (opsional)</label>
+      <input name="group" placeholder="mis. 1"
+             class="rounded-md bg-slate-950 ring-1 ring-slate-700 px-2 py-1.5 text-sm w-24">
+    </div>
     <button class="px-4 py-2 rounded-md bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/30 hover:bg-emerald-500/25 text-sm font-medium">
       Import &amp; assign
     </button>
     <div class="text-xs text-slate-500 leading-relaxed">
       Format: export Loki (Proxy IP Address / Proxy Command / Country/Region / Expiration Time / Status),
       tab <span class="mono">Pool</span> (tambahan Group / Account), atau tab <span class="mono">Blacklist</span>.
+      Isi Akun/Group kalau file tidak punya kolomnya (export Loki murni).
       Setelah import, port langsung di-assign otomatis.
     </div>
   </form>

@@ -379,8 +379,15 @@ def parse_xlsx(data: bytes, filename: str = "") -> ParsedFile:
 # --------------------------------------------------------------------------
 # Simpan ke database
 # --------------------------------------------------------------------------
-def import_parsed(session: Session, parsed: ParsedFile) -> dict:
+def import_parsed(
+    session: Session,
+    parsed: ParsedFile,
+    default_account: str | None = None,
+    default_group: str | None = None,
+) -> dict:
     now = utcnow()
+    default_account = _clean_text(default_account)
+    default_group = _norm_group(default_group)
     report = {
         "filename": parsed.filename,
         "sheets": parsed.sheets,
@@ -431,8 +438,8 @@ def import_parsed(session: Session, parsed: ParsedFile) -> dict:
         entry.status = item.status if item.status != "UNKNOWN" else entry.status
         entry.usage_at = item.usage_at or entry.usage_at
         entry.expires_at = item.expires_at or entry.expires_at
-        entry.account_name = item.account_name or entry.account_name
-        entry.group_name = item.group_name or entry.group_name
+        entry.account_name = item.account_name or default_account or entry.account_name
+        entry.group_name = item.group_name or default_group or entry.group_name
         entry.local_ip = item.local_ip or entry.local_ip
         entry.blacklisted = bool(entry.blacklisted or item.blacklisted)
         entry.enabled = True

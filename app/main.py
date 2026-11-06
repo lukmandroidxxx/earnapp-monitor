@@ -1127,6 +1127,8 @@ def pool_page(
 @app.post("/pool/import")
 async def pool_import(
     files: list[UploadFile] = File(default=[]),
+    account: str = Form(default=""),
+    group: str = Form(default=""),
     session: Session = Depends(db_session),
 ):
     files = [item for item in files if item and item.filename]
@@ -1151,7 +1153,12 @@ async def pool_import(
                 f"{upload.filename}: tidak ada sesi proxy yang bisa dibaca"
             )
             continue
-        report = pool_store.import_parsed(session, parsed)
+        report = pool_store.import_parsed(
+            session,
+            parsed,
+            default_account=account,
+            default_group=group,
+        )
         created += report["created"]
         updated += report["updated"]
         skipped += report["skipped"]
