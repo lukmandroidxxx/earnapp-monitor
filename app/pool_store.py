@@ -443,6 +443,12 @@ def import_parsed(
         entry.local_ip = item.local_ip or entry.local_ip
         entry.blacklisted = bool(entry.blacklisted or item.blacklisted)
         entry.enabled = True
+        if not entry.blacklisted:
+            # Sumber/tool masih mengirim sesi ini, jadi karantina lama (bisa
+            # sampai 24 jam) tidak relevan lagi: buka supaya port bisa
+            # memakainya, lalu agent memverifikasi lewat trafik nyata.
+            entry.quarantine_until = None
+            entry.fail_count = 0
         entry.source_file = parsed.filename or entry.source_file
         entry.last_seen = now
         if created:
@@ -480,12 +486,24 @@ def is_expired(entry: PoolEntry, now: datetime | None = None) -> bool:
 
 def entries_usable(entry: PoolEntry, now: datetime | None = None) -> bool:
     now = now or utcnow()
-    if not entry.enabled or entry.blacklisted:
-        return False
-    if entry.status in {"EXPIRED", "OFFLINE"}:
+    if not _entry_basically_usable(entry, now):
         return False
     quarantined = _aware(entry.quarantine_until)
     if quarantined and quarantined > now:
+        return False
+    return True
+
+
+def _entry_basically_usable(entry: PoolEntry, now: datetime | None = None) -> bool:
+    """Sama seperti entries_usable, tanpa memandang karantina.
+
+    Dipakai sebagai pilihan terakhir saat semua sesi sehat sudah terpakai:
+    port kosong lebih buruk untuk VM daripada sesi yang sedang diuji ulang.
+    """
+    now = now or utcnow()
+    if not entry.enabled or entry.blacklisted:
+        return False
+    if entry.status in {"EXPIRED", "OFFLINE"}:
         return False
     expires = _aware(entry.expires_at)
     if expires and expires <= now:
@@ -493,8 +511,9 @@ def entries_usable(entry: PoolEntry, now: datetime | None = None) -> bool:
     return True
 
 
-# Karantina sesi yang gagal: 5 menit, lalu 1 jam, 6 jam, 24 jam.
-_QUARANTINE_STEPS = (300, 3600, 6 * 3600, 24 * 3600)
+# Karantina sesi yang gagal. Pool Loki berubah tiap hari, jadi jangan dikunci
+# lama-lama: cukup jeda singkat supaya port sempat pindah, lalu dicoba lagi.
+_QUARANTINE_STEPS = (300, 600)
 
 
 def mark_entry_ok(entry: PoolEntry, now: datetime | None = None) -> None:
@@ -563,7 +582,7 @@ def auto_assign(
 
     used_entry: set[int] = set()
     ip_usage: dict[str, int] = {}
-    changed = 0
+    previous = {row.port: row.entry_id for row in ports}
 
     def take(entry: PoolEntry) -> None:
         used_entry.add(entry.id)
@@ -600,9 +619,37 @@ def auto_assign(
         row.assigned_at = now
         row.last_error = None
         take(chosen)
-        changed += 1
 
-    session.commit()
+    # Pass 3: masih ada port kosong tapi sesi sehat sudah habis dipakai. Pakai
+    # sesi yang sedang karantina (yang paling cepat sembuh duluan) supaya port
+    # tidak dibiarkan mati; kalau ternyata mati, report berikutnya memutar lagi.
+    fallback = [
+        entry
+        for entry in entries
+        if _entry_basically_usable(entry, now) and not entries_usable(entry, now)
+        and not _recently_failed(entry, now)
+    ]
+    for row in ports:
+        if row.entry_id:
+            continue
+        group = group_for_port(row.port, rules) or row.group_name
+        candidates = [
+            entry
+            for entry in fallback
+            if entry.id not in used_entry
+            and (not entry.ip_address or ip_usage.get(entry.ip_address, 0) < max_ports_per_ip)
+        ]
+        if not candidates:
+            continue
+        chosen = min(candidates, key=lambda entry: _fallback_score(entry, group, ip_usage))
+        row.entry_id = chosen.id
+        row.assigned_at = now
+        row.last_error = None
+        take(chosen)
+
+    changed = sum(1 for row in ports if row.entry_id != previous.get(row.port))
+    if changed:
+        session.commit()
     return {
         "machine": machine,
         "ports": len(ports),
@@ -631,6 +678,21 @@ def _entry_score(
         -expiry,
         entry.id,
     )
+
+
+def _recently_failed(entry: PoolEntry, now: datetime, seconds: int = 60) -> bool:
+    failed = _aware(entry.last_fail_at)
+    return bool(failed and (now - failed).total_seconds() < seconds)
+
+
+def _fallback_score(
+    entry: PoolEntry,
+    group: str | None,
+    ip_usage: dict[str, int],
+) -> tuple:
+    """Urutan sesi karantina: yang paling cepat bebas dicoba lebih dulu."""
+    quarantine = _aware(entry.quarantine_until) or utcnow()
+    return (quarantine.timestamp(),) + _entry_score(entry, group, ip_usage)
 
 
 def rotate_port(
@@ -680,12 +742,26 @@ def rotate_port(
         and (not entry.ip_address or ip_usage.get(entry.ip_address, 0) < max_ports_per_ip)
     ]
     if not candidates:
-        row.entry_id = None
-        row.assigned_at = now
-        row.last_ok_at = None
-        return None
-
-    chosen = min(candidates, key=lambda entry: _entry_score(entry, group, ip_usage))
+        # Tidak ada sesi sehat tersisa: pakai sesi karantina yang paling cepat
+        # sembuh supaya port tetap hidup, bukan dibiarkan kosong.
+        candidates = [
+            entry
+            for entry in entries
+            if _entry_basically_usable(entry, now)
+            and not entries_usable(entry, now)
+            and entry.id not in used
+            and entry.id != failed_entry_id
+            and not _recently_failed(entry, now)
+            and (not entry.ip_address or ip_usage.get(entry.ip_address, 0) < max_ports_per_ip)
+        ]
+        if not candidates:
+            row.entry_id = None
+            row.assigned_at = now
+            row.last_ok_at = None
+            return None
+        chosen = min(candidates, key=lambda entry: _fallback_score(entry, group, ip_usage))
+    else:
+        chosen = min(candidates, key=lambda entry: _entry_score(entry, group, ip_usage))
     row.entry_id = chosen.id
     row.group_name = group or row.group_name
     row.assigned_at = now
@@ -793,12 +869,19 @@ def apply_report(session: Session, machine: str, ports: list[dict]) -> dict:
         if item.get("ok"):
             row.last_ok_at = now
             row.last_error = None
+            row.note = None
             if row.entry is not None:
                 mark_entry_ok(row.entry, now)
         elif item.get("error"):
             row.last_error = str(item["error"])[:240]
-            if row.entry_id:
+            # Gagal karena probe internal agent bukan bukti sesi mati: lalu
+            # lintas VM tetap bisa jalan. Hanya error dari koneksi klien yang
+            # memutar assignment.
+            if item.get("error_source") != "probe" and row.entry_id:
                 failed.append((port, row.entry_id))
+        probe_error = item.get("probe_error")
+        if probe_error:
+            row.note = f"probe: {str(probe_error)[:200]}"
         for field_name, attr in (
             ("latency_ms", "latency_ms"),
             ("active_conns", "active_conns"),

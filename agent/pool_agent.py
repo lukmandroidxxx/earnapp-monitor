@@ -187,6 +187,8 @@ class PortState:
     last_error: str | None = None
     last_error_at: float | None = None
     error_source: str | None = None
+    probe_error: str | None = None
+    probe_error_at: float | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def note_ok(self, latency_ms: int | None = None) -> None:
@@ -195,11 +197,19 @@ class PortState:
             self.latency_ms = latency_ms
         self.last_error = None
         self.error_source = None
+        self.probe_error = None
+        self.probe_error_at = None
 
     def note_error(self, exc: object, source: str = "client") -> None:
         self.last_error = f"{type(exc).__name__}: {exc}"[:240]
         self.last_error_at = time.time()
         self.error_source = source
+
+    def note_probe_error(self, message: str) -> None:
+        # Probe hanya informasi. Jangan dianggap kegagalan port: probe bisa
+        # kalah cepat dengan trafik VM pada sesi yang sama.
+        self.probe_error = message[:240]
+        self.probe_error_at = time.time()
 
     def snapshot(self) -> dict:
         with self.lock:
@@ -216,6 +226,7 @@ class PortState:
                 "tx_bytes": self.tx_bytes,
                 "error": self.last_error if failed else None,
                 "error_source": self.error_source if failed else None,
+                "probe_error": self.probe_error,
                 "upstream_user": self.assignment.username if self.assignment else "",
             }
 
@@ -588,7 +599,7 @@ def probe_all(config: Config) -> None:
                 if ok:
                     state.note_ok(latency)
                 else:
-                    state.note_error(error or "probe gagal", "probe")
+                    state.note_probe_error(error or "probe gagal")
                     LOG.info("probe port %s gagal: %s", state.port, error)
 
 

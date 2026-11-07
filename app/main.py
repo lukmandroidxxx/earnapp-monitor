@@ -1261,6 +1261,17 @@ def api_pool(
     _require_agent_token(request)
     cfg = pool_store.load_pool_config()
     machine = (machine or str(cfg["machine"])).strip()
+    # Self-heal: agent memanggil endpoint ini tiap refresh, jadi port yang
+    # kosong (entry habis/karantina) langsung diisi lagi tanpa menunggu import.
+    pool_store.auto_assign(
+        session,
+        machine=machine,
+        start_port=int(cfg["start_port"]),
+        num_ports=int(cfg["num_ports"]),
+        max_ports_per_ip=int(cfg.get("max_ports_per_ip", 2)),
+        rules=cfg.get("group_rules"),
+        keep_existing=True,
+    )
     ports = pool_store.entries_for_api(session, machine, group or None)
     return JSONResponse(
         {
